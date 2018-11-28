@@ -42,4 +42,3 @@ watch = true
 # This will hide all docker containers that don't have explicitly
 # set label to "enable"
 exposedbydefault = false
-bwirth@Ubuntu-1804-bionic-64-minimal:~/docker/traefik$
