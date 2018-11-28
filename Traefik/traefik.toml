@@ -1,47 +1,45 @@
-#Traefik Global Configuration
-debug = false
-checkNewVersion = true
-logLevel = "ERROR"
+#debug = true
 
-#Define the EntryPoint for HTTP and HTTPS
-defaultEntryPoints = ["https","http"]
+logLevel = "ERROR" #DEBUG, INFO, WARN, ERROR, FATAL, PANIC
+InsecureSkipVerify = false
+defaultEntryPoints = ["https", "http"]
 
-#Enable Traefik Dashboard on port 8080
-#with basic authentication method
-#dockerrun and password
-[web]
-address = ":8080"
-[web.auth.basic]
-users = ["passwordhtpwd"]
+# WEB interface of Traefik - it will show web page with overview of frontend and backend configurations
+[api]
+  entryPoint = "traefik"
+  dashboard = true
+  address = ":8080"
+  usersFile = "/shared/.htpasswd" ####YOU MUST ADD THIS FILE HINT: GOOGLE HTACCESS GENERATOR####
 
-#Define the HTTP port 80 and
-#HTTPS port 443 EntryPoint
-#Enable automatically redirect HTTP to HTTPS
+# Force HTTPS
 [entryPoints]
-[entryPoints.http]
-address = ":80"
-[entryPoints.http.redirect]
-entryPoint = "https"
-[entryPoints.https]
-address = ":443"
-[entryPoints.https.tls]
+  [entryPoints.http]
+  address = ":80"
+    [entryPoints.http.redirect]
+    entryPoint = "https"
+  [entryPoints.https]
+  address = ":443"
+#  [entryPoints.https.tls]
+#  sniStrict = true  #####ENABLE TO USE SSL FULL(strict)#########
 
-#Enable retry sending a request if the network error
-[retry]
+[file]
+#   watch = true
+#   filename = "rules.toml"
 
-#Define Docker Backend Configuration
+#####ENABLE TO USE SSL AND ADD CERTS######
+[[tls]]
+  entryPoints = ["https"]
+  [tls.certificate]
+    certFile = "/shared/domain.com.crt"
+    keyFile = "/shared/domain.com.key"
+
+
+# Connection to docker host system (docker.sock)
 [docker]
 endpoint = "unix:///var/run/docker.sock"
-domain = "traefik.domain.fun"
+domain = "${DOMAINNAME}"
 watch = true
+# This will hide all docker containers that don't have explicitly
+# set label to "enable"
 exposedbydefault = false
-
-#Letsencrypt Registration
-#Define the Letsencrypt ACME HTTP challenge
-[acme]
-email = "email@domain.com"
-storage = "acme.json"
-entryPoint = "https"
-OnHostRule = true
-  [acme.httpChallenge]
-  entryPoint = "http"
+bwirth@Ubuntu-1804-bionic-64-minimal:~/docker/traefik$
