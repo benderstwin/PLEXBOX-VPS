@@ -13,9 +13,9 @@ services:
 #      - "80:80"
       - "443:443"
 #      - "8080:8080"
-    expose:
+#    expose:
 #      - 8080  #useed to access traefik directly, may not be needed.
-    environment:
+#    environment:
 #      - CLOUDFLARE_EMAIL=${CLOUDFLARE_EMAIL}  ###### Only used if you want to USE LE to generate certs (requires further config)
 #      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}  ##### Only used if you want to USE LE to generate certs (requires further config)
     labels:
