@@ -1,0 +1,190 @@
+#############################################
+### Proxmox V & Docker-CE + Portainer		#
+#############################################
+## Rescue System
+
+# Erase other disks
+dd if=/dev/zero of=/dev/sda bs=1M count=100
+dd if=/dev/zero of=/dev/sdb bs=1M count=100
+
+# You can install debian 9 via the guide:
+# Choose debian 9 (stretch) - minimal
+# Configure drive/raid/hostname as you like
+# reboot
+
+# If you prefer CLI:
+installimage -a \
+-n host.domain.tld \
+-b grub \
+-r no \
+-i /root/.oldroot/nfs/install/../images/Debian-91-stretch-64-minimal.tar.gz \
+-p swap:swap:16G,/boot:ext3:1024M,/:ext4:all \
+-d sdc \
+-t yes
+
+# reboot and login via ssh
+
+################### (0) Security ###################
+apt update && apt upgrade -y
+
+apt install ufw -y
+ufw allow ssh
+ufw allow 8006/tcp # proxmox
+ufw allow 9000/tcp # portainer
+ufw enable
+
+apt install certbot -y
+certbot certonly
+# Choose Standalone (2)
+# Enter E-Mail
+# Accept TOS
+# Wait for Certificate
+# ls /etc/letsencrypt/live/
+
+################### (1) Proxmox ###################
+
+# Add ProxmoxVE Repository
+echo "deb http://download.proxmox.com/debian stretch pve-no-subscription" >> /etc/apt/sources.list
+
+# Get GPG Key
+wget http://download.proxmox.com/debian/proxmox-ve-release-5.x.gpg -O /etc/apt/trusted.gpg.d/proxmox-ve-release-5.x.gpg
+
+# Update Sources and Install
+apt update && apt dist-upgrade -y
+apt install proxmox-ve postfix open-iscsi -y
+update-grub
+
+sed -i '1 s/^/# /' /etc/apt/sources.list.d/pve-enterprise.list # comment pve enterprise repo
+
+nano /etc/hosts # comment IPv6 Address
+
+# Allow IPv4 Routing
+sysctl -w net.ipv4.ip_forward=1
+sysctl -w net.ipv6.conf.all.forwarding=1
+
+nano /etc/network/interfaces
+###########################################
+# Host-Adapter [IPv4]
+auto lo
+iface lo inet loopback
+# device: enp0s31f6 (ethernet, port0, slot31, ..) << Change to your specific device
+auto  enp0s31f6
+iface enp0s31f6 inet static
+       address   <Hetzner IPv4>
+       netmask   <Hetzner Netmask>
+       broadcast <Hetzner Broadcast>
+       gateway   <Hetzner Gateway>
+       up route add -net <Hetzner IPv4> netmask <Hetzner Netmask> gw <Hetzner Gateway> dev enp0s31f6
+       post-up echo 1 > /proc/sys/net/ipv4/conf/enp0s31f6/proxy_arp
+
+# Host-Adapter [IPv6]
+iface enp0s31f6 inet6 static
+       address   <Hetzner IPv6>
+       netmask   128
+       gateway   fe80::1
+       up sysctl -p
+
+# Guest-Network [NAT]
+auto vmbr0
+iface vmbr0 inet static
+        address  10.10.10.1
+        netmask  255.255.255.0
+        bridge_ports none
+        bridge_stp off
+        bridge_fd 0
+        post-up   echo 1 > /proc/sys/net/ipv4/ip_forward
+        post-up   iptables -t nat -A POSTROUTING -s '10.10.10.0/24' -o enp0s31f6 -j MASQUERADE
+        post-up   iptables -A FORWARD --in-interface vmbr0 -j ACCEPT
+        post-down iptables -t nat -D POSTROUTING -s '10.10.10.0/24' -o enp0s31f6 -j MASQUERADE
+        post-down iptables -D FORWARD --in-interface vmbr0 -j ACCEPT
+
+###########################################
+
+
+# Update Cert for ProxmoxUI
+cd /etc/pve/nodes/*
+mv pve-ssl.key pve-ssl.proxmox.key
+mv pve-ssl.pem pve-ssl.proxmox.pem
+
+cp /etc/letsencrypt/live/<your host.domain.tld here>/privkey.pem pve-ssl.key
+cp /etc/letsencrypt/live/<your host.domain.tld here>/cert.pem pve-ssl.pem
+
+service pveproxy restart
+service pvedaemon restart
+
+# Goto https://<hostname|ip-addr>:8006
+
+################### (2) Docker-CE ###################
+
+# Install necessary packages
+apt-get install -y apt-transport-https ca-certificates curl gnupg2 software-properties-common
+
+# Install Docker Key
+curl -fsSL https://download.docker.com/linux/debian/gpg | apt-key add -
+
+# Verify Key (as of 2017-09)
+apt-key fingerprint 0EBFCD88
+
+# Add Docker Repo
+add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/debian $(lsb_release -cs) stable"
+
+# Install Docker-CE
+apt update && apt install docker-ce -y
+
+# Verify if running:
+docker ps
+
+################### (3) Portainer-UI ###################
+## Optional Web-UI for managing docker container
+
+cd /opt
+
+# Download Current Release -> Check Portainer Docs
+wget https://github.com/portainer/portainer/releases/download/1.14.0/portainer-1.14.0-linux-amd64.tar.gz
+
+# Extract Release
+tar xvpfz portainer-1.14.0-linux-amd64.tar.gz
+
+# remove tar
+rm portainer-*
+
+# Set permissions
+chown -R root portainer
+
+# Create Data Directory
+mkdir /opt/portainer-data
+
+# Create System Service
+nano /etc/systemd/system/portainer.service
+###########################################
+[Unit]
+Description=Portainer Docker UI
+ 
+[Service]
+User=root
+Restart=always
+WorkingDirectory=/opt/portainer/
+Environment="SSLCERT=/etc/letsencrypt/live/<your domain here>/cert.pem"
+Environment="CERTKEY=/etc/letsencrypt/live/<your domain here>/privkey.pem"
+ExecStart=/opt/portainer/portainer -p 0.0.0.0:9000 -d /opt/portainer-data --ssl --sslcert="${SSLCERT}" --sslkey="${CERTKEY}"
+
+[Install]
+WantedBy=default.target
+###########################################
+
+systemctl daemon-reload
+
+# Enable Service for System Startup
+systemctl enable portainer.service
+
+# Start Service
+systemctl start portainer.service
+
+
+## Resources:
+http://datenfahrt.org/wiki/linux/docker/systemd
+https://blog.hostonnet.com/install-letsencrypt-ssl-proxmox
+https://wiki.ubuntuusers.de/systemd/Service_Units/
+https://pve.proxmox.com/wiki/Network_Model#Routed_Configuration
+https://www.servethehome.com/creating-the-ultimate-virtualization-and-container-setup-with-management-guis/
+https://wiki.debian.org/LXC/MasqueradedBridge
